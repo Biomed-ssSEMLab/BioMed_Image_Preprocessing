@@ -1,0 +1,145 @@
+stitching:
+    detector_threads: 20
+    # detector_type: SIFT
+    # detector_params:
+    #     sigma: 1.8
+    detector_type: SIFT
+    detector_params:
+        nfeatures: 0                   # 提取特征的最大关键点数
+#    detector_type: SURF  # BRISK、AKAZE
+
+    matcher_threads: 20
+    matcher_params:
+        ROD_cutoff: 0.99                   # 在match时knnMatch返回两个最接近的match，判断第一个match的distance是否 < 该参数*第二个match的distance，若是，表明是good match
+        model_index: 1                    # 0: Translation, 1: Rigid, 3: Affine
+        # num_filtered_percent: 0.1
+        # filter_rate_cutoff: 0.1
+        min_features_num: 10              # 待匹配关键点的个数不能小于min_features_num
+        iterations: 50000
+        max_epsilon: 5
+        min_inlier_ratio: 0.01
+        min_num_inlier: 7                 # 在filter_after_ransac时，用来表示最少的有效match点数
+        max_trust: 3                      # 在filter_after_ransac时，用来进一步筛除异常点的参数
+        # det_delta: 0.95
+        # max_stretch: 0.95
+        # use_regularizer: True
+        # regularizer_model_index: 1
+        # regularizer_lambda: 0.1
+        best_k_matches: 30                # 在match_and_filter时，只保留最匹配的点的个数
+
+    missing_matches_policy_type: mb_aligner.stitching.missing_matches_policies.use_microscope_coords.UseMicroscopeCoordinates
+    missing_matches_policy_params:
+        intra_mfov_only: True             # 若有overlap的tile之间找不到好的匹配点或者匹配点数量很少(<=3)，那么会加入fake点，但是当该值设为True时，只对同一个mFov的找不到匹配点的两个tile做加fake点的操作(设为False时拼接效果更差)
+
+    optimizer_type: mb_aligner.stitching.optimizers.optimize_rigid_2d_tiles.Rigid2DOptimizer
+    # optimizer_type: mb_aligner.stitching.optimizers.gpu.optimize_rigid_2d_tiles_gpu.GPURigid2DOptimizer
+    optimizer_params:                     # 优化的思路是对所有匹配点做最小二乘法求最优解
+        damping: 0.001
+        huber_delta: 15                   # 求huber loss时的参数
+        max_iterations: 4000
+        init_gamma: 1e-11                 # 初始梯度下降系数
+        min_gamma: 1e-30                  # 最小的梯度下降系数，若不停迭代过程中，梯度下降系数小于该值，则停止迭代
+        eps: 1e-11                         # 若迭代过程中，当前的转换矩阵值与上一次转换矩阵值的差值全部<=该值，则停止迭代
+        pre_translate: True               # 因为求特征点时，是相对于tile图像左上角坐标为(0, 0)求的，并不是真实的特征点坐标，所以需要进行位移
+
+alignment:
+    process_lru_size: 50                # 最近最少使用的process，如果大于该值，会将最少使用的相关process删除
+    processes_num: 24                   # 设置进程数
+    continue_on_error: True
+    compare_distance: 1                 # 与当前section距离从1到compare_distance的其他section都要做配准
+
+    # pre_match_type: mb_aligner.alignment.pre_matchers.full_section_then_mfovs_thumbs_blobs.PreMatch3DFullSectionThenMfovsThumbsBlobs
+    pre_match_type: mb_aligner.alignment.pre_matchers.full_section_then_mfovs_blobs.PreMatch3DFullSectionThenMfovsBlobs
+    pre_match_params:
+        blob_detector:
+            blob_params:
+                minArea: 200
+                maxArea: 1000
+            ds_rate: 0.125                   # 粗配准对图片提取特征时，对图片进行resize的值，越小提取的特征数量越少(默认1，即原图大小)
+
+    # using for filtering feature matches
+        matcher_params:
+            min_features_num: 10          # sec1和sec2的待匹配关键点的个数不能小于min_features_num
+            ROD_cutoff: 0.9               # 在match时knnMatch返回两个最接近的match，判断第一个match的distance是否 < 该参数*第二个match的distance，若是，表明是good match
+            model_index: 3                # 0: Translation, 1: Rigid, 3: Affine
+            #num_filtered_percent: 0.1
+            #filter_rate_cutoff: 0.1
+            iterations: 5000000               # ransac时会从匹配的点中随机选出iterations种组合用来计算转换矩阵，并最终挑选最好的转换矩阵
+            max_epsilon: 70                 # 由sec1中的3个点，和sec2中的3个点，求出转换model，但是需要评判一下是否是好的model，将sec1中的所有关键点做transform后，求出离对应的sec2中的关键点的距离，用于考量是否是好的model
+            min_inlier_ratio: 0.001          # 作用同max_epsilon
+            min_num_inlier: 3               # 作用同max_epsilon
+            max_trust: 3                    # 在filter_after_ransac时，用来进一步筛除异常点的参数
+            det_delta: 0.95                 # 在ransac时，判断model_matrix的行列式值是否<1-det_delta, 或>1+det_delta，若是，表示不是一个好的model
+            max_stretch: 0.95               # 在ransac中check_model_stretch时用上，判断model_matrix的特征值是否>=1-max_stretch, <=1+max_stretch，若是，表明为有效的特征值
+            # max_rot_deg: None             # None
+            # avoid_robust_filter: False    # False
+            # max_distance: None            # None
+
+            # use_regularizer: True         # 在pre_match阶段match_and_filter时用上
+            # regularizer_lambda: 0.1       # 0.1
+            # regularizer_model_index: 1    # 在pre_match阶段match_and_filter时用上
+            # best_k_matches: 0             # 0 - all of the matches  # 在pre_match阶段match_and_filter时用上，用于在filtered matches中挑选最匹配的K组点
+            
+    # fine_match_type: mb_aligner.alignment.fine_matchers.block_matcher_pmcc.BlockMatcherPMCCDispatcher
+    # fine_match_params:
+    #     mesh_spacing: 500
+    #     scaling: 0.4
+    #     template_size: 400
+    #     search_window_size: 800
+    #     min_correlation: 0.3
+    #     maximal_curvature_ratio: 10    # 最大曲率
+    #     maximal_ROD: 0.9
+    #     use_clahe: False
+
+    fine_match_type: mb_aligner.alignment.fine_matchers.features_block_matcher.FeaturesBlockMatcherDispatcher
+    fine_match_params:
+        mesh_spacing: 500              # 正六边形网格化时六边形的纵向高度，六边形为Pointy topped Hexagon, default = 500
+        scaling: 1.0                   # 精配准对图片提取特征时，对图片进行resize的值(默认1，即原图大小)
+        template_size: 400             # 模板图（正向估计时，为section1）中六边形顶点周围的搜索矩形框，边长，处理时已将template_size/2, default = 400
+        search_window_size: 800        # default = 800
+        # 待搜索图（正向估计时，为section2）中六边形顶点周围的搜索矩形框，边长，处理时已将search_window_size/2，
+        # 顶点为section1中顶点单应变换而来，为估计点，不准确，为找到匹配的特征点，
+        # search_window_size应大于template_size     
+                                        
+        use_clahe: False               # 对图像提取特征前是否对图像进行clahe操作
+        detector_type: ORB # ORB, SIFT, SURF, BRISK, AKAZE
+        detector_params:  
+            nfeatures: 50000
+
+        matcher_params:
+            ROD_cutoff: 0.99              # 0.99
+            model_index: 0                # 0: Translation, 1: Rigid, 3: Affine
+            # num_filtered_percent: 0.1
+            # filter_rate_cutoff: 0.1
+            min_features_num: 10
+            iterations: 50000
+            max_epsilon: 5                # 代码中若上面的scaling不为1，则该值也要乘以scaling
+            min_inlier_ratio: 0.0
+            min_num_inlier: 0
+            avoid_robust_filter: True
+            # max_trust: 3
+            # det_delta: 0.95
+            # max_stretch: 0.95
+            # use_regularizer: True
+            # regularizer_model_index: 1
+            # regularizer_lambda: 0.1
+            # best_k_matches: 30
+
+    fine_match_filter_type: mb_aligner.alignment.filters.fine_matches_local_affine_support_filter.FineMatchesAffineSupportFilter
+    fine_match_filter_params:
+        support_radius: 7500    # 用于筛选某个点该范围内的点，以此对点进行区域划分
+        model_index: 3          # 0: Translation, 1: Rigid, 3: Affine
+        min_matches: 3          # 所有在buckets内的点建成的R树，判断当前点与R树中点交集的个数，若小于min_matches，fail1_cnt+1
+        iterations: 100         # 50
+        max_epsilon: 15
+
+
+    optimizer_type: mb_aligner.alignment.optimizers.optimize_mesh_elastic.ElasticMeshOptimizer
+    optimizer_params:
+        mesh_spacing: 500                   # 对section的bbox进行三角剖分
+        cross_slice_weight: 20.0            # 1.0    计算external_grad时参数
+        cross_slice_winsor: 50              # 20     计算external_grad时参数
+        intra_slice_weight: 2.0             # 1.0    计算internal_grad时参数
+        intra_slice_winsor: 10000           # 200    计算internal_grad时参数
+        max_iterations: 5000000               # 5000   梯度下降优化迭代次数
+        min_stepsize: 1.0e-30               # 1e-20  如果梯度下降优化中stepsize小于设置的该参数值，则停止迭代

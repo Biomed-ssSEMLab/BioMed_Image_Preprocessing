@@ -1,0 +1,16 @@
+*.egg-info/
+__pycache__/
+alignment/__pycache__/
+alignment/filters/__pycache__/
+alignment/fine_matchers/__pycache__/
+alignment/optimizers/__pycache__/
+alignment/pre_matchers/__pycache__/
+common/__pycache__/
+common/detectors/__pycache__/
+common/detectors/blob_detector_impl/__pycache__/
+dal/__pycache__/
+factories/__pycache__/
+stitching/__pycache__/
+stitching/missing_matches_policies/__pycache__/
+stitching/optimizers/__pycache__/
+
